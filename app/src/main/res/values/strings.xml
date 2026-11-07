@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">Cupertino Weather Live</string>
+    <string name="wallpaper_label">Cupertino Weather 120Hz</string>
+    <string name="wallpaper_author">Antigravity Studio • Pixel 10 Pro</string>
+    <string name="wallpaper_description">Apple iOS Weather-inspired 120Hz AGSL volumetric live wallpaper with real-time Open-Meteo sync, clock-shelf rain splashes, refractive glass droplets, and 3D gyro parallax.</string>
+</resources>
