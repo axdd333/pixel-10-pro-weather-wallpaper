@@ -376,35 +376,37 @@ private fun CupertinoWeatherHeroHeader(
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.padding(top = 6.dp)
+        modifier = Modifier.padding(top = 8.dp)
     ) {
         Text(
             text = weather.locationName,
             color = Color.White,
-            fontSize = 32.sp,
-            fontWeight = FontWeight.Normal,
-            letterSpacing = 0.3.sp
+            fontSize = 31.sp,
+            fontWeight = FontWeight.Light,
+            letterSpacing = 0.6.sp
         )
         Text(
             text = weather.formatTemperature(useFahrenheit),
             color = Color.White,
-            fontSize = 88.sp,
+            fontSize = 94.sp,
             fontWeight = FontWeight.Thin,
-            letterSpacing = (-3).sp,
+            letterSpacing = (-3.5).sp,
             modifier = Modifier.clickable { onToggleUnit() }
         )
         Text(
             text = "${weather.condition.iconGlyph}  ${weather.condition.label}",
-            color = Color.White.copy(alpha = 0.92f),
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Medium
+            color = Color.White.copy(alpha = 0.88f),
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Normal,
+            letterSpacing = 0.4.sp
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = "${weather.formatHighLow(useFahrenheit)}  •  Tap temp for °F/°C",
-            color = Color.White.copy(alpha = 0.80f),
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium
+            color = Color.White.copy(alpha = 0.68f),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Normal,
+            letterSpacing = 0.3.sp
         )
     }
 }
@@ -706,17 +708,8 @@ private fun PhysicsAndOpticsTunerCard(
             )
 
             ToggleSettingRow(
-                title = "Live J2000 Constellation Wireframes",
-                subtitle = "Connects Orion, Ursa Major, Cassiopeia & Cygnus for your LST/Lat/Lon",
-                checked = prefs.showConstellationLines,
-                onCheckedChange = { enabled ->
-                    onUpdatePrefs { it.copy(showConstellationLines = enabled) }
-                }
-            )
-
-            ToggleSettingRow(
-                title = "1st-Magnitude Navigation Star Labels",
-                subtitle = "Displays Sirius, Vega, Betelgeuse, Rigel, Capella & Polaris at night",
+                title = "Ephemeral 1st-Magnitude Star Whispers",
+                subtitle = "Gossamer-faint typographic names that slowly breathe beside Sirius, Vega & Rigel",
                 checked = prefs.showStarLabels,
                 onCheckedChange = { enabled ->
                     onUpdatePrefs { it.copy(showStarLabels = enabled) }
@@ -1097,24 +1090,24 @@ private fun GlassCard(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(26.dp))
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.20f),
-                        Color.White.copy(alpha = 0.11f)
+                        Color.White.copy(alpha = 0.13f),
+                        Color.White.copy(alpha = 0.06f)
                     )
                 )
             )
             .border(
-                width = 0.9.dp,
+                width = 0.6.dp,
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.40f),
-                        Color.White.copy(alpha = 0.12f)
+                        Color.White.copy(alpha = 0.28f),
+                        Color.White.copy(alpha = 0.06f)
                     )
                 ),
-                shape = RoundedCornerShape(24.dp)
+                shape = RoundedCornerShape(26.dp)
             ),
         color = Color.Transparent,
         content = content

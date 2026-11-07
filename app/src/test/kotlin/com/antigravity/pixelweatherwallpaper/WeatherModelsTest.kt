@@ -64,18 +64,17 @@ class WeatherModelsTest {
 
     @Test
     fun astronomicalStarCatalog_projectsStarsAboveHorizonForCupertinoAndTokyo() {
-        val (cupertinoStars, cupertinoLines) = com.antigravity.pixelweatherwallpaper.model.AstronomicalStarCatalog
+        val cupertinoStars = com.antigravity.pixelweatherwallpaper.model.AstronomicalStarCatalog
             .projectVisibleSky(
                 latitudeDeg = 37.3230,
                 longitudeDeg = -122.0322,
                 epochMillis = 1762554000000L
             )
-        assertTrue("Should project visible bright stars above Cupertino horizon", cupertinoStars.size > 15)
-        assertTrue("Polaris should always be above horizon in Cupertino", cupertinoStars.any { it.name == "Polaris" })
-        assertTrue("Constellation wireframes should be generated", cupertinoLines.isNotEmpty())
+        assertTrue("Should project over 80 naked-eye stars above Cupertino horizon", cupertinoStars.size > 80)
+        assertTrue("Polaris should always be above horizon in Cupertino", cupertinoStars.any { it.properName == "Polaris" })
         assertTrue(
-            "All projected stars must have positive altitude",
-            cupertinoStars.all { it.altitudeDeg > 1.0f && it.screenNormX in 0f..1f && it.screenNormY in 0f..1f }
+            "All projected stars must have positive altitude and pinpoint radius",
+            cupertinoStars.all { it.altitudeDeg > 1.5f && it.radiusPx in 0.4f..2.5f }
         )
     }
 
