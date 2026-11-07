@@ -200,6 +200,30 @@ data class WeatherState(
             val phase = ((diff % synodicMonthMs) + synodicMonthMs) % synodicMonthMs / synodicMonthMs
             return phase.toFloat()
         }
+
+        /**
+         * Computes the fractional lunar illumination [0.0..1.0] from synodic phase [0.0..1.0].
+         */
+        fun computeMoonIlluminationFraction(moonPhase: Float): Float {
+            return (0.5f * (1f - cos(moonPhase * 2f * PI.toFloat()))).coerceIn(0f, 1f)
+        }
+
+        /**
+         * Returns the human-readable 8-phase astronomical name for the given synodic phase [0..1].
+         */
+        fun moonPhaseName(moonPhase: Float): String {
+            val p = ((moonPhase % 1f) + 1f) % 1f
+            return when {
+                p < 0.03f || p > 0.97f -> "New Moon"
+                p < 0.22f -> "Waxing Crescent"
+                p < 0.28f -> "First Quarter"
+                p < 0.47f -> "Waxing Gibbous"
+                p < 0.53f -> "Full Moon"
+                p < 0.72f -> "Waning Gibbous"
+                p < 0.78f -> "Third Quarter"
+                else -> "Waning Crescent"
+            }
+        }
     }
 }
 
@@ -255,5 +279,7 @@ data class WallpaperPreferences(
     val customTimeSliderEnabled: Boolean = false,
     val customSolarElevation: Float = 0.65f,
     val particleDensityMultiplier: Float = 1.0f,
-    val atmosphericBloomIntensity: Float = 0.90f
+    val atmosphericBloomIntensity: Float = 0.90f,
+    val showConstellationLines: Boolean = true,
+    val showStarLabels: Boolean = true
 )

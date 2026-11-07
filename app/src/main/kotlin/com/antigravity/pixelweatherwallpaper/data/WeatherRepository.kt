@@ -342,7 +342,9 @@ class WeatherRepository private constructor(context: Context) {
             customTimeSliderEnabled = prefs.getBoolean(KEY_CUSTOM_TIME, false),
             customSolarElevation = prefs.getFloat(KEY_SOLAR_ELEV, 0.65f),
             particleDensityMultiplier = prefs.getFloat(KEY_PARTICLE_DENSITY, 1.0f),
-            atmosphericBloomIntensity = prefs.getFloat(KEY_BLOOM, 0.90f)
+            atmosphericBloomIntensity = prefs.getFloat(KEY_BLOOM, 0.90f),
+            showConstellationLines = prefs.getBoolean(KEY_SHOW_CONSTELLATIONS, true),
+            showStarLabels = prefs.getBoolean(KEY_SHOW_STAR_LABELS, true)
         )
     }
 
@@ -365,6 +367,8 @@ class WeatherRepository private constructor(context: Context) {
             .putFloat(KEY_SOLAR_ELEV, p.customSolarElevation)
             .putFloat(KEY_PARTICLE_DENSITY, p.particleDensityMultiplier)
             .putFloat(KEY_BLOOM, p.atmosphericBloomIntensity)
+            .putBoolean(KEY_SHOW_CONSTELLATIONS, p.showConstellationLines)
+            .putBoolean(KEY_SHOW_STAR_LABELS, p.showStarLabels)
             .apply()
     }
 
@@ -389,6 +393,8 @@ class WeatherRepository private constructor(context: Context) {
         private const val KEY_SOLAR_ELEV = "custom_solar_elev"
         private const val KEY_PARTICLE_DENSITY = "particle_density"
         private const val KEY_BLOOM = "bloom_intensity"
+        private const val KEY_SHOW_CONSTELLATIONS = "show_constellations"
+        private const val KEY_SHOW_STAR_LABELS = "show_star_labels"
 
         @Volatile
         private var instance: WeatherRepository? = null

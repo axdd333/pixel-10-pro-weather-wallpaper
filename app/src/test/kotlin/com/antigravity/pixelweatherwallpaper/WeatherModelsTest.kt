@@ -57,6 +57,26 @@ class WeatherModelsTest {
     fun moonPhase_isNormalizedInZeroToOneRange() {
         val phase = WeatherState.computeMoonPhase(1762554000000L)
         assertTrue("Moon phase must be in [0, 1]", phase in 0.0f..1.0f)
+        val illum = WeatherState.computeMoonIlluminationFraction(phase)
+        assertTrue("Moon illumination must be in [0, 1]", illum in 0.0f..1.0f)
+        assertTrue("Moon phase name must not be blank", WeatherState.moonPhaseName(phase).isNotBlank())
+    }
+
+    @Test
+    fun astronomicalStarCatalog_projectsStarsAboveHorizonForCupertinoAndTokyo() {
+        val (cupertinoStars, cupertinoLines) = com.antigravity.pixelweatherwallpaper.model.AstronomicalStarCatalog
+            .projectVisibleSky(
+                latitudeDeg = 37.3230,
+                longitudeDeg = -122.0322,
+                epochMillis = 1762554000000L
+            )
+        assertTrue("Should project visible bright stars above Cupertino horizon", cupertinoStars.size > 15)
+        assertTrue("Polaris should always be above horizon in Cupertino", cupertinoStars.any { it.name == "Polaris" })
+        assertTrue("Constellation wireframes should be generated", cupertinoLines.isNotEmpty())
+        assertTrue(
+            "All projected stars must have positive altitude",
+            cupertinoStars.all { it.altitudeDeg > 1.0f && it.screenNormX in 0f..1f && it.screenNormY in 0f..1f }
+        )
     }
 
     @Test

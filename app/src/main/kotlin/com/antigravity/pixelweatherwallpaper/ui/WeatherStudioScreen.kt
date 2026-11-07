@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.pixelweatherwallpaper.data.WeatherRepository
 import com.antigravity.pixelweatherwallpaper.engine.CupertinoWeatherSceneRenderer
+import com.antigravity.pixelweatherwallpaper.model.AstronomicalStarCatalog
 import com.antigravity.pixelweatherwallpaper.model.PresetLocation
 import com.antigravity.pixelweatherwallpaper.model.WallpaperPreferences
 import com.antigravity.pixelweatherwallpaper.model.WeatherCondition
@@ -705,6 +706,24 @@ private fun PhysicsAndOpticsTunerCard(
             )
 
             ToggleSettingRow(
+                title = "Live J2000 Constellation Wireframes",
+                subtitle = "Connects Orion, Ursa Major, Cassiopeia & Cygnus for your LST/Lat/Lon",
+                checked = prefs.showConstellationLines,
+                onCheckedChange = { enabled ->
+                    onUpdatePrefs { it.copy(showConstellationLines = enabled) }
+                }
+            )
+
+            ToggleSettingRow(
+                title = "1st-Magnitude Navigation Star Labels",
+                subtitle = "Displays Sirius, Vega, Betelgeuse, Rigel, Capella & Polaris at night",
+                checked = prefs.showStarLabels,
+                onCheckedChange = { enabled ->
+                    onUpdatePrefs { it.copy(showStarLabels = enabled) }
+                }
+            )
+
+            ToggleSettingRow(
                 title = "Manual Solar Elevation Scrubber",
                 subtitle = "Override astronomical sun angle (-1.0 Midnight to +1.0 Zenith)",
                 checked = prefs.customTimeSliderEnabled,
@@ -844,6 +863,17 @@ private fun WorldCitiesPickerCard(
 
 @Composable
 private fun TelemetryBentoGrid(weather: WeatherState) {
+    val lstDeg = remember(weather.longitude, weather.lastUpdatedEpochMs) {
+        AstronomicalStarCatalog.computeLocalSiderealTimeDegrees(
+            System.currentTimeMillis(),
+            weather.longitude
+        )
+    }
+    val lstHours = (lstDeg / 15.0).toInt()
+    val lstMinutes = (((lstDeg / 15.0) - lstHours) * 60.0).toInt()
+    val moonIllumPct = (WeatherState.computeMoonIlluminationFraction(weather.moonPhase) * 100f).roundToInt()
+    val moonName = WeatherState.moonPhaseName(weather.moonPhase)
+
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -860,6 +890,23 @@ private fun TelemetryBentoGrid(weather: WeatherState) {
                 label = "HUMIDITY & DEW",
                 value = "${weather.humidityPercent}%",
                 detail = "Cloud Deck ${(weather.cloudCoverFraction * 100).roundToInt()}%"
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            TelemetryMiniCard(
+                modifier = Modifier.weight(1f),
+                label = "LUNAR PHASE & EPHEMERIS",
+                value = moonName,
+                detail = "$moonIllumPct% Illuminated • Synodic ${(weather.moonPhase * 29.53f).roundToInt()}d"
+            )
+            TelemetryMiniCard(
+                modifier = Modifier.weight(1f),
+                label = "SIDEREAL SKY DOME (J2000)",
+                value = String.format(Locale.US, "%02dh %02dm LST", lstHours, lstMinutes),
+                detail = String.format(Locale.US, "Lat %.2f° • Lon %.2f°", weather.latitude, weather.longitude)
             )
         }
         Row(

@@ -10,6 +10,7 @@ import android.graphics.RadialGradient
 import android.graphics.RuntimeShader
 import android.graphics.Shader
 import android.os.Build
+import com.antigravity.pixelweatherwallpaper.model.AstronomicalStarCatalog
 import com.antigravity.pixelweatherwallpaper.model.WallpaperPreferences
 import com.antigravity.pixelweatherwallpaper.model.WeatherCondition
 import com.antigravity.pixelweatherwallpaper.model.WeatherState
@@ -49,6 +50,15 @@ class CupertinoWeatherSceneRenderer {
     private val celestialPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val flarePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val starPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val constellationPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.4f
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val starLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        textSize = 22f
+    }
     private val rainPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
@@ -107,6 +117,11 @@ class CupertinoWeatherSceneRenderer {
 
     // Particle pools (fixed size to avoid allocations)
     private val stars = Array(MAX_STARS) { StarParticle() }
+    private var cachedStarCatalogLat = Double.NaN
+    private var cachedStarCatalogLon = Double.NaN
+    private var cachedStarCatalogMinuteBucket = -1L
+    private var cachedProjectedStars: List<AstronomicalStarCatalog.ProjectedStar> = emptyList()
+    private var cachedConstellationLines: List<AstronomicalStarCatalog.ProjectedConstellationLine> = emptyList()
     private val rainDrops = Array(MAX_RAINDROPS) { RainParticle() }
     private val splashes = Array(MAX_SPLASHES) { SplashParticle() }
     private val glassDroplets = Array(MAX_GLASS_DROPLETS) { GlassDroplet() }
@@ -272,11 +287,17 @@ class CupertinoWeatherSceneRenderer {
         // 2. Render Sky Dome & Volumetric AGSL Clouds
         drawSkyAndShaderLayer(canvas, sunNormX, sunNormY, preferences)
 
-        // 3. Render Nocturnal Starfield & Shooting Stars (when night or twilight)
+        // 3. Render Nocturnal Astronomical Star Chart, Constellations & Shooting Stars (when night or twilight)
         val nightVisibility = ((0.12f - smoothSolarElevation) / 0.38f).coerceIn(0f, 1f) *
             (1f - smoothCloudCover * 0.85f)
         if (nightVisibility > 0.01f) {
-            drawStarfieldAndShootingStars(canvas, dt, nightVisibility)
+            drawStarfieldAndShootingStars(
+                canvas = canvas,
+                dt = dt,
+                nightVisibility = nightVisibility,
+                weather = weather,
+                preferences = preferences
+            )
         }
 
         // 4. Render Sun & Anamorphic Lens Flare OR Moon with Lunar Phase
@@ -400,14 +421,17 @@ class CupertinoWeatherSceneRenderer {
     private fun drawStarfieldAndShootingStars(
         canvas: Canvas,
         dt: Float,
-        nightVisibility: Float
+        nightVisibility: Float,
+        weather: WeatherState,
+        preferences: WallpaperPreferences
     ) {
         val pxOffset = currentParallaxX * viewportWidth * 0.025f
         val pyOffset = currentParallaxY * viewportHeight * 0.018f
 
+        // 1. Background faint Milky Way dust stars
         for (star in stars) {
             val twinkle = 0.45f + 0.55f * sin(elapsedTimeSec * star.twinkleSpeed + star.twinklePhase)
-            val alpha = (nightVisibility * twinkle * 235f).toInt().coerceIn(0, 255)
+            val alpha = (nightVisibility * twinkle * 135f).toInt().coerceIn(0, 255)
             if (alpha <= 4) continue
 
             val sx = ((star.normX * viewportWidth + pxOffset) % viewportWidth + viewportWidth) % viewportWidth
@@ -415,10 +439,71 @@ class CupertinoWeatherSceneRenderer {
 
             starPaint.color = star.colorTint
             starPaint.alpha = alpha
-            canvas.drawCircle(sx, sy, star.sizePx, starPaint)
+            canvas.drawCircle(sx, sy, star.sizePx * 0.75f, starPaint)
         }
 
-        // Update & render occasional shooting star across clear night sky
+        // 2. Real-time J2000 Astronomical Star Chart projected for (latitude, longitude, UTC time)
+        val nowEpochMs = System.currentTimeMillis()
+        val minuteBucket = nowEpochMs / 60_000L
+        if (minuteBucket != cachedStarCatalogMinuteBucket ||
+            weather.latitude != cachedStarCatalogLat ||
+            weather.longitude != cachedStarCatalogLon
+        ) {
+            cachedStarCatalogMinuteBucket = minuteBucket
+            cachedStarCatalogLat = weather.latitude
+            cachedStarCatalogLon = weather.longitude
+            val (projStars, projLines) = AstronomicalStarCatalog.projectVisibleSky(
+                latitudeDeg = weather.latitude,
+                longitudeDeg = weather.longitude,
+                epochMillis = nowEpochMs
+            )
+            cachedProjectedStars = projStars
+            cachedConstellationLines = projLines
+        }
+
+        // 2a. Constellation wireframe asterisms (Ursa Major, Orion, Cassiopeia, Cygnus, Summer Triangle, etc.)
+        if (preferences.showConstellationLines) {
+            for (line in cachedConstellationLines) {
+                val lineAlpha = (nightVisibility * line.alpha * 185f).toInt().coerceIn(0, 140)
+                if (lineAlpha <= 4) continue
+                constellationPaint.color = Color.argb(lineAlpha, 145, 195, 255)
+                val x1 = line.x1Norm * viewportWidth + pxOffset
+                val y1 = line.y1Norm * viewportHeight + pyOffset
+                val x2 = line.x2Norm * viewportWidth + pxOffset
+                val y2 = line.y2Norm * viewportHeight + pyOffset
+                canvas.drawLine(x1, y1, x2, y2, constellationPaint)
+            }
+        }
+
+        // 2b. Principal catalog stars with true spectral color temperature & atmospheric scintillation
+        for (cStar in cachedProjectedStars) {
+            val scintillation = 0.72f + 0.28f * sin(elapsedTimeSec * 2.8f + cStar.twinkleSeed)
+            val starAlpha = (nightVisibility * cStar.baseAlpha * scintillation * 255f)
+                .toInt()
+                .coerceIn(0, 255)
+            if (starAlpha <= 6) continue
+
+            val sx = cStar.screenNormX * viewportWidth + pxOffset
+            val sy = cStar.screenNormY * viewportHeight + pyOffset
+
+            // Soft diffraction halo for 1st-magnitude navigation stars (Sirius, Vega, Arcturus, Capella, Rigel, Betelgeuse)
+            if (cStar.magnitude < 1.35f) {
+                starPaint.color = cStar.colorRgb
+                starPaint.alpha = (starAlpha * 0.28f).toInt()
+                canvas.drawCircle(sx, sy, cStar.radiusPx * 2.6f, starPaint)
+            }
+
+            starPaint.color = cStar.colorRgb
+            starPaint.alpha = starAlpha
+            canvas.drawCircle(sx, sy, cStar.radiusPx, starPaint)
+
+            if (preferences.showStarLabels && cStar.magnitude < 0.95f && nightVisibility > 0.45f) {
+                starLabelPaint.color = Color.argb((starAlpha * 0.68f).toInt(), 210, 230, 255)
+                canvas.drawText(cStar.name, sx + cStar.radiusPx + 8f, sy + 6f, starLabelPaint)
+            }
+        }
+
+        // 3. Update & render occasional shooting star across clear night sky
         nextShootingStarTimer -= dt
         if (!shootingStarActive && nextShootingStarTimer <= 0f && nightVisibility > 0.5f) {
             shootingStarActive = true
