@@ -1,12 +1,10 @@
 package com.antigravity.pixelweatherwallpaper.engine
 
-import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.RadialGradient
 import android.graphics.RuntimeShader
 import android.graphics.Shader
 import android.os.Build
@@ -15,7 +13,6 @@ import com.antigravity.pixelweatherwallpaper.model.WallpaperPreferences
 import com.antigravity.pixelweatherwallpaper.model.WeatherCondition
 import com.antigravity.pixelweatherwallpaper.model.WeatherState
 import kotlin.math.PI
-import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.min
@@ -23,28 +20,17 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * High-precision Cupertino Weather scene renderer sculpted for 120fps on both
- * Android's hardware-accelerated WallpaperService SurfaceHolder Canvas and Jetpack Compose Canvas.
- *
- * Refinements following Apple's Weather design language:
- * - Quiet, observationally accurate J2000 starfield (nearly 300 naked-eye stars projected by
- *   Local Sidereal Time & Latitude/Longitude, with sub-pixel radii and B-V color temperatures,
- *   zero text labels or wireframe clutter by default).
- * - In-shader 3D spherical lunar rendering with mare albedo, soft terminator & earthshine.
- * - Delicate, silky-thin motion-blurred rain streaks with natural Lock-Screen Clock Shelf splashes.
- * - Teardrop surface-tension glass condensation droplets with subtle meniscus refraction.
- * - Organic recursive lightning with realistic double-pulse re-strike flicker.
+ * Ultra-fast 120Hz Cupertino Weather scene renderer engineered for zero GC allocations,
+ * zero CPU BlurMaskFilters, and zero per-frame Shader allocations on the Pixel 10 Pro.
  */
 class CupertinoWeatherSceneRenderer {
 
     private val random = Random(System.nanoTime())
     private val runtimeShader: RuntimeShader? = AtmosphericAgslShader.createOrNull()
 
-    // Pre-allocated Paints to guarantee zero GC allocations per 120Hz frame
+    // Pre-allocated Paints (zero per-frame shader or BlurMaskFilter allocations)
     private val shaderPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val fallbackSkyPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val celestialPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val flarePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val starPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val starLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
@@ -77,13 +63,6 @@ class CupertinoWeatherSceneRenderer {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        maskFilter = BlurMaskFilter(14f, BlurMaskFilter.Blur.NORMAL)
-    }
-    private val ripplePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-    }
-    private val cloudPuffPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
     }
 
     private val lightningPath = Path()
@@ -107,7 +86,7 @@ class CupertinoWeatherSceneRenderer {
     private var targetParallaxX = 0f
     private var targetParallaxY = 0f
 
-    //Cached J2000 astronomical sky projection
+    // Cached J2000 astronomical sky projection
     private var cachedStarCatalogLat = Double.NaN
     private var cachedStarCatalogLon = Double.NaN
     private var cachedStarCatalogBucket = -1L
@@ -118,8 +97,6 @@ class CupertinoWeatherSceneRenderer {
     private val splashes = Array(MAX_SPLASHES) { SplashParticle() }
     private val glassDroplets = Array(MAX_GLASS_DROPLETS) { GlassDroplet() }
     private val snowflakes = Array(MAX_SNOWFLAKES) { SnowParticle() }
-    private val touchRipples = Array(MAX_TOUCH_RIPPLES) { TouchRipple() }
-    private val volumetricPuffs = Array(MAX_CLOUD_PUFFS) { CloudPuff() }
 
     // Subtle meteor / shooting star state
     private var shootingStarActive = false
@@ -137,7 +114,7 @@ class CupertinoWeatherSceneRenderer {
     private var lightningOriginX = 0.5f
     private var lightningOriginY = 0.14f
     private var nextLightningTimer = 3.6f
-    private val boltSegments = FloatArray(80) // x0, y0, x1, y1, widthWeight
+    private val boltSegments = FloatArray(80)
     private var boltSegmentCount = 0
 
     init {
@@ -145,16 +122,6 @@ class CupertinoWeatherSceneRenderer {
     }
 
     private fun initializePools() {
-        for (i in volumetricPuffs.indices) {
-            val layer = i % 3
-            volumetricPuffs[i].apply {
-                normX = random.nextFloat() * 1.4f - 0.2f
-                normY = 0.07f + layer * 0.085f + random.nextFloat() * 0.16f
-                radiusNorm = 0.16f + random.nextFloat() * 0.18f
-                speedNorm = (0.0045f + layer * 0.004f) * (0.85f + random.nextFloat() * 0.3f)
-                depthLayer = layer
-            }
-        }
         for (i in rainDrops.indices) {
             resetRainDrop(rainDrops[i], randomY = true)
         }
@@ -179,39 +146,17 @@ class CupertinoWeatherSceneRenderer {
     }
 
     fun onTouchInteraction(x: Float, y: Float, preferences: WallpaperPreferences) {
-        if (!preferences.enableTouchRipples) return
-        val slot = touchRipples.firstOrNull { !it.active } ?: touchRipples[0]
-        slot.apply {
-            active = true
-            centerX = x
-            centerY = y
-            radiusPx = 4f
-            maxRadiusPx = min(viewportWidth, viewportHeight) * 0.19f
-            alpha = 0.55f
-        }
-
-        val repelRadius = viewportWidth * 0.15f
+        // Gently displace nearby glass droplets or snowflakes without drawing any circles on screen
+        val repelRadius = viewportWidth * 0.14f
         for (droplet in glassDroplets) {
             if (!droplet.active) continue
             val dx = droplet.x - x
             val dy = droplet.y - y
             val dist = hypot(dx, dy)
             if (dist in 1f..repelRadius) {
-                val push = (1f - dist / repelRadius) * 20f
+                val push = (1f - dist / repelRadius) * 18f
                 droplet.x += (dx / dist) * push
-                droplet.vy += 90f
-            }
-        }
-        for (flake in snowflakes) {
-            val fx = flake.normX * viewportWidth
-            val fy = flake.normY * viewportHeight
-            val dx = fx - x
-            val dy = fy - y
-            val dist = hypot(dx, dy)
-            if (dist in 1f..repelRadius) {
-                val push = (1f - dist / repelRadius) * 0.045f
-                flake.normX += (dx / dist) * push
-                flake.normY += (dy / dist) * push
+                droplet.vy += 80f
             }
         }
     }
@@ -256,7 +201,7 @@ class CupertinoWeatherSceneRenderer {
 
         updateLightning(dt, weather)
 
-        // 2. Render Sky Dome, 3D Spherical Moon & Volumetric AGSL Clouds
+        // 2. Render Sky Dome, Solar Corona, 3D Spherical Moon & Volumetric AGSL Clouds in a single GPU pass
         drawSkyAndShaderLayer(canvas, sunNormX, sunNormY, weather.moonPhase, preferences)
 
         // 3. Render Quiet, Observationally Accurate J2000 Starfield (when night or deep twilight)
@@ -274,33 +219,13 @@ class CupertinoWeatherSceneRenderer {
             )
         }
 
-        // 4. Subtle Solar Optical Flare & Warm Corona (Day / Golden Hour)
-        if (smoothSolarElevation > -0.08f) {
-            val sunVisibility = ((smoothSolarElevation + 0.08f) / 0.24f).coerceIn(0f, 1f) *
-                (1f - smoothCloudCover * 0.76f)
-            if (sunVisibility > 0.01f) {
-                drawRefinedSolarOptics(
-                    canvas = canvas,
-                    sunX = sunNormX * viewportWidth,
-                    sunY = sunNormY * viewportHeight,
-                    visibility = sunVisibility,
-                    bloomIntensity = preferences.atmosphericBloomIntensity
-                )
-            }
-        }
-
-        // 5. Render Soft Multi-Plane Cloud Puffs
-        if (smoothCloudCover > 0.06f) {
-            drawSoftParallaxCloudPuffs(canvas, dt)
-        }
-
-        // 6. Render Branching Lightning Bolt Geometry
+        // 4. Render Branching Lightning Bolt Geometry
         if (lightningFlashIntensity > 0.04f && boltSegmentCount > 0) {
             drawLightningBoltGeometry(canvas)
         }
 
-        // 7. Render Precipitation: Silky Rain + Clock-Shelf Splashes + Teardrop Glass Droplets OR Snow
-        val densityMult = preferences.particleDensityMultiplier.coerceIn(0.4f, 1.8f)
+        // 5. Render Precipitation: Silky Rain + Clock-Shelf Splashes + Teardrop Glass Droplets OR Snow
+        val densityMult = preferences.particleDensityMultiplier.coerceIn(0.4f, 1.6f)
         if (smoothPrecip > 0.02f && smoothSnowFactor < 0.5f) {
             drawRainAndClockSplashes(
                 canvas = canvas,
@@ -329,11 +254,6 @@ class CupertinoWeatherSceneRenderer {
                 windKmh = weather.windSpeedKmh,
                 densityMultiplier = densityMult
             )
-        }
-
-        // 8. Render Subtle Touch Water Ripples
-        if (preferences.enableTouchRipples) {
-            drawTouchRipples(canvas, dt)
         }
     }
 
@@ -381,11 +301,6 @@ class CupertinoWeatherSceneRenderer {
         }
     }
 
-    /**
-     * Renders the real-time J2000 astronomical starfield quietly and naturally —
-     * pinpoint sub-pixel stars at their exact altitude & azimuth for the user's location
-     * and time, with subtle atmospheric scintillation and zero text/wireframe clutter.
-     */
     private fun drawAstronomicalStarfield(
         canvas: Canvas,
         dt: Float,
@@ -399,7 +314,7 @@ class CupertinoWeatherSceneRenderer {
         val pyOffset = currentParallaxY * viewportHeight * 0.015f
 
         val nowEpochMs = System.currentTimeMillis()
-        val bucket = nowEpochMs / 30_000L // Update sidereal sky projection every 30 seconds
+        val bucket = nowEpochMs / 60_000L
         if (bucket != cachedStarCatalogBucket ||
             weather.latitude != cachedStarCatalogLat ||
             weather.longitude != cachedStarCatalogLon
@@ -422,11 +337,9 @@ class CupertinoWeatherSceneRenderer {
             val sx = cStar.screenNormX * viewportWidth + pxOffset
             val sy = cStar.screenNormY * viewportHeight + pyOffset
 
-            // Naturally fade stars out in the bright glare right next to the lunar disc
             val distToMoon = hypot(sx - moonX, sy - moonY)
             if (distToMoon < moonExclusionRadius) continue
 
-            // Gentle, organic atmospheric scintillation (higher scintillation near horizon)
             val horizonFactor = (sy / (viewportHeight * 0.72f)).coerceIn(0.2f, 1.0f)
             val wave = sin(elapsedTimeSec * (2.1f + horizonFactor * 1.6f) + cStar.scintillationSeed)
             val scintillation = 1.0f - (0.12f + 0.16f * horizonFactor) * (0.5f - 0.5f * wave)
@@ -436,7 +349,6 @@ class CupertinoWeatherSceneRenderer {
                 .coerceIn(0, 245)
             if (starAlpha <= 5) continue
 
-            // Delicate airy-disc glow on 1st-magnitude navigation stars only (Sirius, Vega, Arcturus, Rigel, Betelgeuse)
             if (cStar.isFirstMagnitude) {
                 starPaint.color = cStar.colorRgb
                 starPaint.alpha = (starAlpha * 0.18f).toInt()
@@ -447,7 +359,6 @@ class CupertinoWeatherSceneRenderer {
             starPaint.alpha = starAlpha
             canvas.drawCircle(sx, sy, cStar.radiusPx, starPaint)
 
-            // Ephemeral, whisper-faint typographic star name for principal navigation stars
             val name = cStar.properName
             if (preferences.showStarLabels && name != null && cStar.magnitude < 1.35f && nightVisibility > 0.35f) {
                 val breath = (sin(elapsedTimeSec * 0.38f + cStar.scintillationSeed * 2.3f) - 0.15f)
@@ -476,144 +387,28 @@ class CupertinoWeatherSceneRenderer {
             shootingStarVx = cos(angle) * speed
             shootingStarVy = sin(angle) * speed
             shootingStarLife = 0f
-            nextShootingStarTimer = 9.0f + random.nextFloat() * 14.0f
+            nextShootingStarTimer = 10.0f + random.nextFloat() * 14.0f
         }
 
         if (shootingStarActive) {
             shootingStarLife += dt
-            val maxLife = 0.46f
+            val maxLife = 0.44f
             if (shootingStarLife >= maxLife) {
                 shootingStarActive = false
             } else {
                 shootingStarX += shootingStarVx * dt
                 shootingStarY += shootingStarVy * dt
                 val progress = shootingStarLife / maxLife
-                val envAlpha = (sin(progress * PI.toFloat()) * nightVisibility * 210f).toInt().coerceIn(0, 210)
-                val tailLen = 0.068f
+                val envAlpha = (sin(progress * PI.toFloat()) * nightVisibility * 195f).toInt().coerceIn(0, 195)
+                val tailLen = 0.062f
                 val tailX = shootingStarX - shootingStarVx * tailLen
                 val tailY = shootingStarY - shootingStarVy * tailLen
 
-                rainPaint.strokeWidth = 1.6f
-                rainPaint.shader = LinearGradient(
-                    shootingStarX, shootingStarY, tailX, tailY,
-                    Color.argb(envAlpha, 255, 255, 255),
-                    Color.argb(0, 175, 210, 255),
-                    Shader.TileMode.CLAMP
-                )
+                rainPaint.strokeWidth = 1.5f
+                rainPaint.color = Color.argb(envAlpha, 235, 245, 255)
                 canvas.drawLine(shootingStarX, shootingStarY, tailX, tailY, rainPaint)
-                rainPaint.shader = null
             }
         }
-    }
-
-    /**
-     * Renders restrained, Apple-style optical lens bloom and subtle anamorphic bokeh
-     * without harsh cartoon sun rays.
-     */
-    private fun drawRefinedSolarOptics(
-        canvas: Canvas,
-        sunX: Float,
-        sunY: Float,
-        visibility: Float,
-        bloomIntensity: Float
-    ) {
-        val baseRadius = min(viewportWidth, viewportHeight) * 0.075f
-        val isGolden = smoothSolarElevation < 0.22f
-
-        // Soft atmospheric Mie bloom
-        val outerRadius = baseRadius * 3.8f
-        val midAlpha = (visibility * 75f * bloomIntensity).toInt().coerceIn(0, 200)
-        val haloTint = if (isGolden) {
-            Color.argb(midAlpha, 255, 185, 110)
-        } else {
-            Color.argb(midAlpha, 255, 250, 236)
-        }
-        celestialPaint.shader = RadialGradient(
-            sunX, sunY, outerRadius,
-            intArrayOf(
-                Color.argb((visibility * 175 * bloomIntensity).toInt().coerceIn(0, 255), 255, 255, 250),
-                haloTint,
-                Color.argb(0, 255, 210, 140)
-            ),
-            floatArrayOf(0f, 0.28f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawCircle(sunX, sunY, outerRadius, celestialPaint)
-        celestialPaint.shader = null
-
-        // Whisper-quiet optical aperture ghosts along the screen center axis
-        val centerX = viewportWidth * 0.5f
-        val centerY = viewportHeight * 0.5f
-        val axisX = centerX - sunX
-        val axisY = centerY - sunY
-
-        val flareStops = floatArrayOf(0.52f, 0.94f, 1.38f, 1.72f)
-        val flareRadii = floatArrayOf(0.24f, 0.44f, 0.18f, 0.58f)
-        for (idx in flareStops.indices) {
-            val t = flareStops[idx]
-            val fx = sunX + axisX * t
-            val fy = sunY + axisY * t
-            val fr = baseRadius * flareRadii[idx]
-            val flareAlpha = (visibility * 18f * bloomIntensity).toInt().coerceIn(0, 255)
-            if (flareAlpha <= 2) continue
-            flarePaint.shader = RadialGradient(
-                fx, fy, fr,
-                when (idx % 2) {
-                    0 -> Color.argb(flareAlpha, 165, 225, 255)
-                    else -> Color.argb(flareAlpha, 255, 215, 175)
-                },
-                Color.TRANSPARENT,
-                Shader.TileMode.CLAMP
-            )
-            canvas.drawCircle(fx, fy, fr, flarePaint)
-        }
-        flarePaint.shader = null
-    }
-
-    private fun drawSoftParallaxCloudPuffs(
-        canvas: Canvas,
-        dt: Float
-    ) {
-        val activeCount = (volumetricPuffs.size * smoothCloudCover).toInt().coerceIn(2, volumetricPuffs.size)
-        val isDay = smoothSolarElevation > 0.02f
-        val isGolden = smoothSolarElevation in -0.08f..0.22f
-
-        for (i in 0 until activeCount) {
-            val puff = volumetricPuffs[i]
-            puff.normX += puff.speedNorm * dt
-            if (puff.normX > 1.25f) {
-                puff.normX = -0.25f
-            }
-
-            val depthFactor = (puff.depthLayer + 1) * 0.33f
-            val px = (puff.normX + currentParallaxX * 0.065f * depthFactor) * viewportWidth
-            val py = (puff.normY + currentParallaxY * 0.024f * depthFactor) * viewportHeight
-            val radius = puff.radiusNorm * min(viewportWidth, viewportHeight) * (0.9f + 0.3f * depthFactor)
-
-            val alphaBase = (smoothCloudCover * (26f + puff.depthLayer * 12f) * (1f - smoothPrecip * 0.35f))
-                .toInt().coerceIn(0, 95)
-            if (alphaBase <= 3) continue
-
-            val innerColor = when {
-                lightningFlashIntensity > 0.1f -> Color.argb(
-                    (alphaBase * 1.4f).toInt().coerceAtMost(160),
-                    205, 225, 255
-                )
-                isGolden -> Color.argb(alphaBase, 255, 195, 152)
-                isDay && smoothPrecip < 0.4f -> Color.argb(alphaBase, 250, 253, 255)
-                isDay -> Color.argb(alphaBase, 145, 162, 185)
-                else -> Color.argb(alphaBase, 42, 58, 90)
-            }
-
-            cloudPuffPaint.shader = RadialGradient(
-                px, py - radius * 0.15f, radius,
-                innerColor,
-                Color.TRANSPARENT,
-                Shader.TileMode.CLAMP
-            )
-            canvas.drawCircle(px, py, radius, cloudPuffPaint)
-        }
-        cloudPuffPaint.shader = null
     }
 
     private fun updateLightning(dt: Float, weather: WeatherState) {
@@ -624,7 +419,7 @@ class CupertinoWeatherSceneRenderer {
             lightningRestrikeTimer -= dt
             if (lightningRestrikeTimer <= 0f) {
                 lightningRestrikePending = false
-                lightningFlashIntensity = 0.78f // Natural secondary return-stroke pulse
+                lightningFlashIntensity = 0.78f
             }
         }
         if (!weather.condition.isStorm) return
@@ -648,7 +443,7 @@ class CupertinoWeatherSceneRenderer {
         var curX = lightningOriginX * viewportWidth
         var curY = lightningOriginY * viewportHeight
         val targetBottomY = viewportHeight * (0.52f + random.nextFloat() * 0.24f)
-        val steps = 14
+        val steps = 13
 
         val stepY = (targetBottomY - curY) / steps
         for (i in 0 until steps) {
@@ -660,7 +455,7 @@ class CupertinoWeatherSceneRenderer {
             boltSegments[boltSegmentCount++] = nextX
             boltSegments[boltSegmentCount++] = nextY
 
-            if (i in 3..10 && random.nextFloat() < 0.38f && boltSegmentCount + 4 <= boltSegments.size) {
+            if (i in 3..9 && random.nextFloat() < 0.35f && boltSegmentCount + 4 <= boltSegments.size) {
                 val branchX = nextX + (if (random.nextBoolean()) 1f else -1f) * viewportWidth * 0.06f
                 val branchY = nextY + stepY * 1.6f
                 boltSegments[boltSegmentCount++] = nextX
@@ -684,19 +479,20 @@ class CupertinoWeatherSceneRenderer {
         }
         val alpha = (lightningFlashIntensity * 235f).toInt().coerceIn(0, 235)
 
-        lightningGlowPaint.strokeWidth = 9.5f
-        lightningGlowPaint.color = Color.argb((alpha * 0.58f).toInt(), 155, 195, 255)
+        // Hardware-friendly layered stroke glow (zero BlurMaskFilter CPU stall)
+        lightningGlowPaint.strokeWidth = 11f
+        lightningGlowPaint.color = Color.argb((alpha * 0.24f).toInt(), 145, 190, 255)
         canvas.drawPath(lightningPath, lightningGlowPaint)
 
-        lightningCorePaint.strokeWidth = 2.2f
+        lightningGlowPaint.strokeWidth = 5.5f
+        lightningGlowPaint.color = Color.argb((alpha * 0.45f).toInt(), 185, 215, 255)
+        canvas.drawPath(lightningPath, lightningGlowPaint)
+
+        lightningCorePaint.strokeWidth = 2.0f
         lightningCorePaint.color = Color.argb(alpha, 245, 250, 255)
         canvas.drawPath(lightningPath, lightningCorePaint)
     }
 
-    /**
-     * Renders Apple-calibrated silky-thin motion-blurred rain streaks with head-to-tail
-     * linear gradient taper and delicate Lock-Screen Clock Shelf micro-splashes.
-     */
     private fun drawRainAndClockSplashes(
         canvas: Canvas,
         dt: Float,
@@ -708,7 +504,7 @@ class CupertinoWeatherSceneRenderer {
     ) {
         val activeDrops = (MAX_RAINDROPS * precipIntensity * densityMultiplier)
             .toInt()
-            .coerceIn(16, MAX_RAINDROPS)
+            .coerceIn(14, MAX_RAINDROPS)
 
         val windSlantVx = (windKmh * 5.2f) + currentParallaxX * 140f
 
@@ -716,7 +512,6 @@ class CupertinoWeatherSceneRenderer {
         val shelfLeftX = viewportWidth * 0.16f
         val shelfRightX = viewportWidth * 0.84f
 
-        rainPaint.shader = null
         for (i in 0 until activeDrops) {
             val drop = rainDrops[i]
             val depthScale = 0.42f + drop.depth * 0.88f
@@ -727,13 +522,12 @@ class CupertinoWeatherSceneRenderer {
             drop.x += vx * dt
             drop.y += vy * dt
 
-            // Subtle Lock-Screen Clock Shelf collision
             if (enableClockSplashes &&
                 drop.depth > 0.52f &&
                 prevY <= shelfY &&
                 drop.y >= shelfY &&
                 drop.x in shelfLeftX..shelfRightX &&
-                random.nextFloat() < 0.36f
+                random.nextFloat() < 0.35f
             ) {
                 spawnClockSplash(drop.x, shelfY)
                 resetRainDrop(drop, randomY = false)
@@ -750,7 +544,6 @@ class CupertinoWeatherSceneRenderer {
             val tailY = drop.y - vy * streakDt
             val headAlpha = ((38 + drop.depth * 88) * precipIntensity).toInt().coerceIn(14, 145)
 
-            // Silky-thin stroke width (0.65px background .. 1.65px foreground)
             rainPaint.strokeWidth = 0.65f + drop.depth * 1.0f
             rainPaint.color = Color.argb(headAlpha, 215, 234, 255)
             canvas.drawLine(tailX, tailY, drop.x, drop.y, rainPaint)
@@ -796,10 +589,6 @@ class CupertinoWeatherSceneRenderer {
         }
     }
 
-    /**
-     * Renders organic teardrop condensation droplets on the virtual glass lens with
-     * subtle internal refraction and specular caustic highlights.
-     */
     private fun drawRefractiveGlassDroplets(
         canvas: Canvas,
         dt: Float,
@@ -809,6 +598,11 @@ class CupertinoWeatherSceneRenderer {
         val activeCount = (MAX_GLASS_DROPLETS * precipIntensity * densityMultiplier)
             .toInt()
             .coerceIn(3, MAX_GLASS_DROPLETS)
+
+        dropletBodyPaint.color = Color.argb(38, 200, 228, 255)
+        dropletRimPaint.strokeWidth = 0.85f
+        dropletRimPaint.color = Color.argb(95, 235, 248, 255)
+        starPaint.color = Color.argb(175, 255, 255, 255)
 
         for (i in 0 until activeCount) {
             val d = glassDroplets[i]
@@ -837,7 +631,6 @@ class CupertinoWeatherSceneRenderer {
             val r = d.radiusPx
             val elongation = (1.05f + (d.vy / 240f).coerceIn(0f, 0.65f))
 
-            // Teardrop contour path (slightly tapered at top, rounded meniscus at bottom)
             dropletPath.reset()
             dropletPath.moveTo(d.x, d.y - r * elongation * 1.15f)
             dropletPath.cubicTo(
@@ -852,28 +645,10 @@ class CupertinoWeatherSceneRenderer {
             )
             dropletPath.close()
 
-            dropletBodyPaint.shader = RadialGradient(
-                d.x, d.y + r * 0.28f, r * elongation * 1.1f,
-                intArrayOf(
-                    Color.argb(32, 255, 255, 255),
-                    Color.argb(68, 195, 225, 255),
-                    Color.argb(85, 20, 36, 64)
-                ),
-                floatArrayOf(0f, 0.72f, 1f),
-                Shader.TileMode.CLAMP
-            )
             canvas.drawPath(dropletPath, dropletBodyPaint)
-
-            // Delicate lower meniscus rim highlight
-            dropletRimPaint.strokeWidth = 0.9f
-            dropletRimPaint.color = Color.argb(105, 235, 248, 255)
             canvas.drawPath(dropletPath, dropletRimPaint)
-
-            // Crisp pinpoint specular reflection near upper-left crown
-            starPaint.color = Color.argb(185, 255, 255, 255)
             canvas.drawCircle(d.x - r * 0.26f, d.y - r * 0.22f, r * 0.20f, starPaint)
         }
-        dropletBodyPaint.shader = null
     }
 
     private fun drawSnowfallAndFrost(
@@ -885,7 +660,7 @@ class CupertinoWeatherSceneRenderer {
     ) {
         val activeFlakes = (MAX_SNOWFLAKES * snowIntensity * densityMultiplier)
             .toInt()
-            .coerceIn(24, MAX_SNOWFLAKES)
+            .coerceIn(20, MAX_SNOWFLAKES)
 
         val windDriftNorm = (windKmh / 1600f) + currentParallaxX * 0.032f
 
@@ -906,33 +681,15 @@ class CupertinoWeatherSceneRenderer {
             val sx = flake.normX * viewportWidth
             val sy = flake.normY * viewportHeight
             val radius = flake.radiusPx * depthScale
-            val alpha = ((75 + flake.depth * 145) * snowIntensity).toInt().coerceIn(24, 225)
+            val alpha = ((65 + flake.depth * 140) * snowIntensity).toInt().coerceIn(20, 215)
 
-            // Soft radial falloff on all snowflakes for natural optical depth-of-field
-            snowPaint.shader = RadialGradient(
-                sx, sy, radius * 1.45f,
-                Color.argb(alpha, 250, 253, 255),
-                Color.TRANSPARENT,
-                Shader.TileMode.CLAMP
-            )
-            canvas.drawCircle(sx, sy, radius * 1.45f, snowPaint)
-        }
-        snowPaint.shader = null
-    }
-
-    private fun drawTouchRipples(canvas: Canvas, dt: Float) {
-        for (ripple in touchRipples) {
-            if (!ripple.active) continue
-            ripple.radiusPx += dt * 280f
-            ripple.alpha -= dt * 0.85f
-            if (ripple.alpha <= 0.02f || ripple.radiusPx >= ripple.maxRadiusPx) {
-                ripple.active = false
-                continue
+            // Fast concentric two-pass circle for soft bokeh without allocating RadialGradient per flake
+            if (flake.depth > 0.7f) {
+                snowPaint.color = Color.argb((alpha * 0.32f).toInt(), 245, 250, 255)
+                canvas.drawCircle(sx, sy, radius * 1.65f, snowPaint)
             }
-            val a = (ripple.alpha * 120f).toInt().coerceIn(0, 255)
-            ripplePaint.strokeWidth = 1.6f
-            ripplePaint.color = Color.argb(a, 225, 242, 255)
-            canvas.drawCircle(ripple.centerX, ripple.centerY, ripple.radiusPx, ripplePaint)
+            snowPaint.color = Color.argb(alpha, 250, 253, 255)
+            canvas.drawCircle(sx, sy, radius, snowPaint)
         }
     }
 
@@ -955,7 +712,7 @@ class CupertinoWeatherSceneRenderer {
         } else {
             random.nextFloat() * viewportHeight * 0.35f - 20f
         }
-        droplet.radiusPx = 3.2f + random.nextFloat() * 5.2f
+        droplet.radiusPx = 3.2f + random.nextFloat() * 4.8f
         droplet.vy = 6f + random.nextFloat() * 24f
         droplet.targetVy = droplet.vy
         droplet.slipTimer = 0.4f + random.nextFloat() * 1.4f
@@ -966,19 +723,11 @@ class CupertinoWeatherSceneRenderer {
         flake.depth = random.nextFloat()
         flake.normX = random.nextFloat()
         flake.normY = if (randomY) random.nextFloat() else -0.04f - random.nextFloat() * 0.08f
-        flake.radiusPx = 2.0f + random.nextFloat() * 4.4f
+        flake.radiusPx = 1.8f + random.nextFloat() * 3.8f
         flake.fallSpeedNorm = 0.042f + random.nextFloat() * 0.058f
         flake.flutterFreq = 1.3f + random.nextFloat() * 2.2f
         flake.flutterPhase = random.nextFloat() * 6.28f
     }
-
-    private class CloudPuff(
-        var normX: Float = 0f,
-        var normY: Float = 0f,
-        var radiusNorm: Float = 0.2f,
-        var speedNorm: Float = 0.008f,
-        var depthLayer: Int = 0
-    )
 
     private class RainParticle(
         var x: Float = 0f,
@@ -1011,28 +760,17 @@ class CupertinoWeatherSceneRenderer {
     private class SnowParticle(
         var normX: Float = 0f,
         var normY: Float = 0f,
-        var radiusPx: Float = 3.5f,
+        var radiusPx: Float = 3.2f,
         var fallSpeedNorm: Float = 0.055f,
         var flutterFreq: Float = 1.8f,
         var flutterPhase: Float = 0f,
         var depth: Float = 0.5f
     )
 
-    private class TouchRipple(
-        var active: Boolean = false,
-        var centerX: Float = 0f,
-        var centerY: Float = 0f,
-        var radiusPx: Float = 0f,
-        var maxRadiusPx: Float = 180f,
-        var alpha: Float = 0f
-    )
-
     companion object {
-        private const val MAX_CLOUD_PUFFS = 16
-        private const val MAX_RAINDROPS = 190
-        private const val MAX_SPLASHES = 44
-        private const val MAX_GLASS_DROPLETS = 16
-        private const val MAX_SNOWFLAKES = 140
-        private const val MAX_TOUCH_RIPPLES = 6
+        private const val MAX_RAINDROPS = 145
+        private const val MAX_SPLASHES = 36
+        private const val MAX_GLASS_DROPLETS = 12
+        private const val MAX_SNOWFLAKES = 110
     }
 }

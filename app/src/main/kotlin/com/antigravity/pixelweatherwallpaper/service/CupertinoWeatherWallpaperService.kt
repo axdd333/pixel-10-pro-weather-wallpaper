@@ -54,7 +54,7 @@ class CupertinoWeatherWallpaperService : WallpaperService() {
 
         override fun onCreate(surfaceHolder: SurfaceHolder?) {
             super.onCreate(surfaceHolder)
-            setTouchEventsEnabled(true)
+            setTouchEventsEnabled(false)
             setOffsetNotificationsEnabled(true)
 
             sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
@@ -251,7 +251,7 @@ class CupertinoWeatherWallpaperService : WallpaperService() {
             sensorManager?.registerListener(
                 this,
                 sensor,
-                SensorManager.SENSOR_DELAY_GAME
+                SensorManager.SENSOR_DELAY_UI
             )
         }
 

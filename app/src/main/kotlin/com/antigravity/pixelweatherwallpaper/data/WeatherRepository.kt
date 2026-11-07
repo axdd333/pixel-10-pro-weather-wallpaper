@@ -337,7 +337,7 @@ class WeatherRepository private constructor(context: Context) {
             enableGlassDroplets = prefs.getBoolean(KEY_DROPLETS, true),
             enableClockShelfSplashes = prefs.getBoolean(KEY_CLOCK_SPLASHES, true),
             clockShelfYFraction = prefs.getFloat(KEY_CLOCK_SHELF_Y, 0.28f),
-            enableTouchRipples = prefs.getBoolean(KEY_TOUCH_RIPPLES, true),
+            enableTouchRipples = prefs.getBoolean(KEY_TOUCH_RIPPLES, false),
             targetFrameRateMode = prefs.getInt(KEY_FPS_MODE, 120),
             customTimeSliderEnabled = prefs.getBoolean(KEY_CUSTOM_TIME, false),
             customSolarElevation = prefs.getFloat(KEY_SOLAR_ELEV, 0.65f),

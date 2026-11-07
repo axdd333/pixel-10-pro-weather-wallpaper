@@ -137,7 +137,7 @@ fun WeatherStudioScreen(
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
         }
         if (prefs.enableGyroParallax && sensor != null) {
-            sensorManager?.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_GAME)
+            sensorManager?.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)
         }
         onDispose {
             sensorManager?.unregisterListener(listener)

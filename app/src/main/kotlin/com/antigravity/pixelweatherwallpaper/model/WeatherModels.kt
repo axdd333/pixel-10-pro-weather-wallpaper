@@ -274,7 +274,7 @@ data class WallpaperPreferences(
     val enableGlassDroplets: Boolean = true,
     val enableClockShelfSplashes: Boolean = true,
     val clockShelfYFraction: Float = 0.28f, // Pixel 10 Pro clock bottom shelf
-    val enableTouchRipples: Boolean = true,
+    val enableTouchRipples: Boolean = false,
     val targetFrameRateMode: Int = 120, // 60 or 120 Hz for Pixel 10 Pro Smooth Display
     val customTimeSliderEnabled: Boolean = false,
     val customSolarElevation: Float = 0.65f,
